@@ -1,0 +1,25 @@
+# VPSリソース監視（メモリ・スワップ・CPU負荷）
+#
+# メール通知は未設定。/var/log/monit.log とステータス画面（ローカルのみ）で確認する運用。
+# 閾値は初期値。実際の運用データを見ながら調整する想定。
+
+# コンテナ環境のため start delay は設けない（ホスト再起動時のなだれ防止用オプション。
+# これがあると httpd が30秒 LISTEN せず、Kamal の deploy_timeout 内にヘルスチェックが通らない）
+set daemon 60
+
+set log /var/log/monit.log
+
+set idfile /var/lib/monit/id
+set statefile /var/lib/monit/state
+
+# monit CLI（`monit status` 等）が接続する制御用 httpd。コンテナ内 localhost のみ許可。
+# 日常の確認は `kamal status`（= コンテナ内 monit status）で行う。ブラウザ閲覧はしない。
+set httpd port 2812 and
+    use address localhost
+    allow localhost
+
+check system vps-host
+    if memory usage > 90% for 5 cycles then alert
+    if swap usage > 70% for 5 cycles then alert
+    if loadavg (5min) > 4 for 5 cycles then alert
+    if cpu usage (user) > 90% for 10 cycles then alert

@@ -1,0 +1,13 @@
+# config/deploy.<destination名>.yml としてコピーして使うテンプレート
+# （例: cp config/deploy.sample.yml config/deploy.production.yml）。
+# config/deploy.*.yml（本ファイルを除く）は .gitignore で除外されるため、
+# 実際の接続情報をコミットしてしまう心配はない。
+
+servers:
+  web:
+    hosts:
+      - your-vps-host.example.com   # 対象VPSのホスト名 or IPアドレスに置き換える
+
+ssh:
+  user: deploy                      # 対象VPSのSSHユーザーに置き換える
+  config: ["~/.ssh/config"]         # ポート等の接続設定は ~/.ssh/config 側で管理する

@@ -1,0 +1,33 @@
+# Kamalによるデプロイ設定（ベース）。
+# VPSごとの接続情報（hosts, ssh）は config/deploy.<destination名>.yml に記載する
+# （config/deploy.*.yml は .gitignore で除外。テンプレートは config/deploy.sample.yml を参照）。
+#
+# 注意：このapp自体はHTTPを一切喋らない常駐デーモン（Monit）なので、
+# web ロールで `proxy: false` を指定し kamal-proxy を使わない。
+# kamal-proxyによるルーティング・SSL終端・HTTPヘルスチェックは行わず、
+# Dockerfile側のHEALTHCHECKでコンテナの生死を判定する。
+# （proxy を指定しないと kamal-proxy が有効になり、80番への HTTP ヘルスチェックが通らずデプロイが失敗する）
+
+service: vps-resource-monitor
+image: vps-resource-monitor
+
+# コンテナが healthy になるまで Kamal が待つ秒数。
+# Monit 起動〜httpd LISTEN に数秒かかるため、デフォルト30sから余裕を持たせる。
+deploy_timeout: 60
+
+servers:
+  web:
+    # destination未指定の `kamal` コマンドは hosts が無くエラーになる（必ず -d を指定する）。
+    proxy: false
+
+registry:
+  server: localhost:5555
+
+builder:
+  arch: amd64
+  remote: false
+  context: .
+
+aliases:
+  status: app exec --interactive --reuse "monit status"
+  logs: app logs -f

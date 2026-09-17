@@ -1,0 +1,13 @@
+# Kamal: destination別の実ファイルはコミットしない（テンプレートのみ許可）
+config/deploy.*.yml
+!config/deploy.sample.yml
+
+# 個人用の作業指示書
+CLAUDE.md
+
+# シークレット・環境変数
+.env
+.kamal/secrets*
+
+# OS/エディタ生成物
+.DS_Store
