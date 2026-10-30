@@ -15,8 +15,9 @@
 
 - ホスト（OS/物理マシン）レベルのメモリ・スワップ・CPU負荷（load average / CPU使用率）を継続的に監視し、
   閾値を継続して超過した場合に検知できること
-- 外部SaaS・追加のメール送信基盤に依存しないこと（`/var/log/monit.log` と `monit status`、
-  コンテナ内localhostの簡易Web UIで確認する運用）
+- メール送信基盤に依存しないこと。通知は任意で、Healthchecks（セルフホスト可）へ送る。
+  設定しなくても `/var/log/monit.log` と `monit status` で確認できること
+- 通知を有効にしたとき、異常を即時に、また VPS や Monit の停止を ping の途絶えとして検知できること
 - 監視対象は「ホストのリソース状況」のみ。同じホスト上で動く個別アプリには依存しないこと
 - Docker コンテナ化し、Kamal でデプロイすること
 - HTTP を外部に公開しない常駐デーモンとして動作すること（Kamal の `proxy` は使わない）
@@ -92,12 +93,20 @@ Kamalの新旧入れ替えロジックは同一prefixのコンテナしか検出
 旧コンテナ（destinationなしのprefixを持つコンテナ）を`docker rm -f`で手動削除し、
 切り替えを完了した（2026-09-17）。詳細・今後の注意点は`docs/design.md`の該当節を参照。
 
+### Healthchecks への通知 — 2026-10-30
+
+Monit のメール通知は未整備のままだったため、通知を Healthchecks に寄せた。
+`bin/hc-notify` と `docker-entrypoint` を追加し、`config/monitrc` を更新した。
+設計は `docs/design.md`、検証は `test/notify_test.sh`。
+
 ## 未確認・未検証のこと
 
 1. **`kamal deploy`（2回目以降）の動作**：`kamal setup` は完走したが、更新時の `kamal deploy` /
    ロールバック挙動はまだ実運用で通していない
 2. **閾値のチューニング**：`config/monitrc`の閾値（メモリ90%・スワップ70%・load average 4等）は初期値。実際にデプロイして数日〜数週間分のデータを見てから調整するのが望ましい
-3. **メール通知**：現時点では未設定。必要になったらSMTP設定を追加する（`README.md`に追記箇所の目安を記載済み）
+3. **Healthchecks 通知の本番動作**：ローカルでは、ダミーの受け口と本物の Healthchecks（v5.0.3）への送信まで確認済み（2026-10-30）。
+   本番の Healthchecks 経由のメール通知は未確認
+4. **メール通知（Monit 直接）**：設定しない。通知は Healthchecks に寄せる
 
 ## 参考情報
 

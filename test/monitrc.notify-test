@@ -1,0 +1,15 @@
+# notify_test.sh 用。本番の monitrc と同じ形で、周期と閾値だけテスト向けに変えている。
+set daemon 1
+set log /var/log/monit.log
+set idfile /var/lib/monit/id
+set statefile /var/lib/monit/state
+set httpd port 2812 and
+    use address localhost
+    allow localhost
+
+check system vps-host
+    if memory usage > 0% for 1 cycles then exec "/usr/local/bin/hc-notify fail"
+
+check program hc-heartbeat with path "/usr/local/bin/hc-notify beat"
+    every 2 cycles
+    if status != 0 then alert

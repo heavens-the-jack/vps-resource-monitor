@@ -1,0 +1,51 @@
+#!/bin/sh
+# Healthchecks（死活監視）へ監視結果を送る。Monit から呼ばれる。
+#
+#   hc-notify beat  現在の状態を送る。異常があれば /fail、なければ成功の ping（定期実行用）
+#   hc-notify fail  異常を即時に /fail で送る（Monit の `then exec` 用。原因は MONIT_* から取る）
+#
+# HC_PING_URL（docker-entrypoint が /run/hc-notify.env に書き出す）が未設定なら何もしない。
+# 送信に失敗しても Monit の動作は止めない（常に exit 0。失敗は /var/log/hc-notify.log に残す）。
+# 本文は Healthchecks の画面とメールに残るため、秘密は載せない（状態の文字列のみ）。
+
+MODE="${1:-}"
+ENV_FILE="${HC_NOTIFY_ENV_FILE:-/run/hc-notify.env}"
+LOG_FILE="${HC_NOTIFY_LOG:-/var/log/hc-notify.log}"
+HEARTBEAT_SERVICE="hc-heartbeat"   # config/monitrc の check program 名（自分自身は判定から除く）
+BODY_LIMIT=2000
+
+log() { echo "$(date '+%Y-%m-%dT%H:%M:%S%z') $*" >> "$LOG_FILE"; }
+
+[ -r "$ENV_FILE" ] && . "$ENV_FILE"
+[ -n "${HC_PING_URL:-}" ] || exit 0
+
+# summary の1列目がサービス名、2列目が状態の先頭語（OK は正常）。先頭2行はヘッダ。
+problems() {
+  monit summary -B 2>/dev/null | awk -v self="$HEARTBEAT_SERVICE" \
+    'NR > 2 && $1 != self && $2 != "OK" && $2 != "Initializing" && $2 != "Waiting"'
+}
+
+send() {  # $1: URL の末尾（"" か "/fail"）、標準入力: 本文
+  head -c "$BODY_LIMIT" | curl -fsS -m 10 --retry 2 --retry-delay 2 \
+    --data-binary @- "${HC_PING_URL%/}$1" >/dev/null 2>> "$LOG_FILE" \
+    || log "送信に失敗: mode=$MODE suffix=${1:-none}"
+}
+
+case "$MODE" in
+  beat)
+    found=$(problems)
+    if [ -n "$found" ]; then
+      printf '%s\n' "$found" | send /fail
+    else
+      monit summary -B 2>&1 | send ""
+    fi
+    ;;
+  fail)
+    printf '%s\n%s\n%s\n' "service: ${MONIT_SERVICE:-unknown}" "event: ${MONIT_EVENT:-unknown}" \
+      "${MONIT_DESCRIPTION:-}" | send /fail
+    ;;
+  *)
+    log "不明なモード: ${MODE}"
+    ;;
+esac
+exit 0

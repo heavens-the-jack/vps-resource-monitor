@@ -11,7 +11,11 @@ config/monitrc ── 監視ルール本体
   │  set daemon 60                        （60秒周期でポーリング）
   │  set httpd port 2812 / use address localhost / allow localhost
   │                                       （monit CLI 用の制御 httpd。コンテナ内localhostのみ）
-  │  check system vps-host { memory / swap / loadavg / cpu の閾値 }
+  │  check system vps-host { memory / swap / loadavg / cpu の閾値 → 超過で hc-notify fail }
+  │  check program hc-heartbeat { 5周期ごとに hc-notify beat }
+  │
+bin/hc-notify ── Healthchecks への通知（HC_PING_URL 未設定なら何もしない）
+bin/docker-entrypoint ── HC_PING_URL を /run/hc-notify.env へ書き出して Monit を起動
   │
 config/deploy.yml ── Kamal 設定（ベース、hosts は持たない）
      servers.web.proxy: false             （web ロールで kamal-proxy を使わない。下記参照）
@@ -145,6 +149,35 @@ destinationを新規導入・変更した場合は、デプロイ後に以下を
 - Dockerfile の `HEALTHCHECK`（`--interval=60s --timeout=5s --start-period=30s --retries=3`）は変更しない。
   `start-period` 中の失敗は retries を消費しないため、httpd の立ち上がりが多少遅れても問題にならない。
 
+## Healthchecks への通知設計
+
+### 目的
+VPS が止まる、Monit が落ちる、閾値を超えるといった状況を、メールを自前で送らずに知る。
+Healthchecks は「ping が来なくなったら通知する」死活監視で、ping に本文を付けて記録できる。
+
+### 仕組み
+
+| 契機 | 実行されるもの | 送るもの |
+|------|----------------|----------|
+| 閾値超過が規定の周期続く | `then exec "hc-notify fail"` | `/fail`。本文は Monit の `MONIT_SERVICE` / `MONIT_EVENT` / `MONIT_DESCRIPTION` |
+| 5周期ごと | `check program hc-heartbeat`（`hc-notify beat`） | 異常があれば `/fail`（本文は異常のあるサービスの行）、なければ成功の ping（本文は `monit summary`） |
+| ping が途絶える | Healthchecks 側 | （Healthchecks が通知する） |
+
+- `beat` が状態を見て `/fail` を選ぶのは、異常が続いているのに成功の ping で Healthchecks が「正常」に戻らないようにするため
+- `hc-heartbeat` 自身は異常判定から除く（`HEARTBEAT_SERVICE`）
+- 本文は 2,000 バイトで切る（Healthchecks の既定上限は 10,000 バイト）
+
+### 判断
+- **HC_PING_URL 未設定なら無効**：公開リポジトリのまま、通知先を持たない人も使える。ping URL は秘密として `.kamal/secrets` にのみ置く
+- **環境変数をファイル経由で渡す**：Monit は `exec` するプログラムへ環境変数を引き継がないため、`docker-entrypoint` が `/run/hc-notify.env`（root のみ読み取り可）へ書き出す
+- **`hc-notify` は常に exit 0**：送信失敗で Monit の動作に影響させない。送信は10秒で打ち切り、2回再試行し、失敗は `/var/log/hc-notify.log` に残す
+- **`check program` の判定ルール**：Monit は program チェックにルール（`status` か `content`）を必須とするため `if status != 0 then alert` を置いている。通知先は設定していないので、発火してもログに残るのみ
+- **Kamal の secret は destination ファイル側で宣言する**：ベースの `deploy.yml` に `env.secret` を書くと、`.kamal/secrets` に値が無い利用者のデプロイが失敗するため
+
+### 検証
+- `test/notify_test.sh`（ダミーの受け口。未設定、正常、異常、送信先不達の4場面）
+- 本物の Healthchecks v5.0.3 に本文つきの ping を送り、記録されて状態が `up` になることを確認した（2026-10-30）。実際のメール通知（Gmail）は未確認
+
 ## テスト
 
 - `test/readiness_test.sh` — イメージをビルドしてコンテナを起動し、`THRESHOLD_SECONDS`（25秒）以内に
@@ -154,3 +187,7 @@ destinationを新規導入・変更した場合は、デプロイ後に以下を
   一時的なdestinationファイル（ダミーホスト）を指定すると `hosts` が正しく反映されることを
   検証する回帰テスト。実VPSの情報には依存せず、bash とローカルインストール済みの `kamal`
   コマンドで完結する。
+- `test/notify_test.sh` — ダミーの受け口（Python）を立て、Healthchecks への通知を検証する。
+  `HC_PING_URL` 未設定で何も送らないこと、正常時の `beat` が成功の ping になること、
+  異常時に `then exec` の `/fail` と、異常が続く間の `beat` の `/fail` が届くこと、
+  送信先に届かなくても Monit が動き続けて失敗がログに残ることを確認する。

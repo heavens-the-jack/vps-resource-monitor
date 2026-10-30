@@ -3,14 +3,18 @@
 VPS本体（OS/ホストレベル）のメモリ・スワップ・CPU負荷を監視する、軽量な自己完結型ツール。
 [Monit](https://mmonit.com/monit/) をDockerコンテナ化し、[Kamal](https://kamal-deploy.org/) でデプロイする。
 
-外部SaaS・追加のメール送信基盤には依存しない。特定のアプリケーションから独立しており、
+メール送信基盤には依存しない。通知は任意で、[Healthchecks](https://healthchecks.io/)（セルフホスト可）へ送れる。
+特定のアプリケーションから独立しており、
 同じホスト上で稼働する任意のアプリとは無関係に、ホストのリソース状況だけを見る。
 
 ## 構成
 
 ```
 vps-resource-monitor/
-├── Dockerfile              # Monitを動かす最小イメージ
+├── Dockerfile              # Monitを動かす最小イメージ（monit + curl）
+├── bin/
+│   ├── hc-notify           # Healthchecksへ監視結果を送るスクリプト（Monitから呼ばれる）
+│   └── docker-entrypoint   # HC_PING_URL をMonitが呼ぶスクリプトへ渡す
 ├── LICENSE.txt
 ├── config/
 │   ├── monitrc             # Monitの監視ルール本体
@@ -18,7 +22,9 @@ vps-resource-monitor/
 │   └── deploy.sample.yml   # VPSごとの接続情報テンプレート（コピーして使う）
 ├── test/
 │   ├── readiness_test.sh   # コンテナが素早くhealthyになることの回帰テスト
-│   └── destination_test.sh # destinationでhostsが切り替わることの回帰テスト
+│   ├── destination_test.sh # destinationでhostsが切り替わることの回帰テスト
+│   ├── notify_test.sh      # Healthchecksへの通知の回帰テスト
+│   └── monitrc.notify-test # notify_test.sh 用の監視設定（閾値と周期だけテスト向け）
 └── docs/
     ├── requirements.md      # 背景・要件・現状・未確認事項
     └── design.md            # 構成とreadiness設計
@@ -39,10 +45,12 @@ docker rm -f monit-test
 ```sh
 bash test/readiness_test.sh
 bash test/destination_test.sh
+bash test/notify_test.sh
 ```
 
 - `readiness_test.sh`：コンテナが Kamal のタイムアウト内に `healthy` になることを検証する回帰テスト（docker が必要）
 - `destination_test.sh`：destination指定でVPSのhostsが正しく切り替わることを検証する回帰テスト（kamal が必要）
+- `notify_test.sh`：ダミーの受け口を立て、通知が正しい URL・本文で届くこと、未設定なら何も送らないこと、送信に失敗しても Monit が動き続けることを検証する（docker が必要）
 
 ## デプロイ（Kamal）
 
@@ -88,9 +96,23 @@ kamal logs -d production     # コンテナのログ確認
 
 ## 通知について
 
-現時点ではメール通知は**未設定**（SMTP未整備のため）。`kamal status`（コンテナ内で `monit status`）と `/var/log/monit.log` の確認で運用する。
+通知は Healthchecks へ送る（**任意**。`HC_PING_URL` を設定した場合のみ有効で、未設定なら送らない）。
+
+- 異常を検知したとき（閾値の超過が `for N cycles` 続いたとき）：即時に `/fail` を送る。原因が本文に載る
+- 5周期（約5分）ごと：現在の状態を送る。異常が続いていれば `/fail`、正常なら成功の ping（本文は `monit summary`）
+- VPS全体や Monit が止まると送信が途絶える。それを Healthchecks 側が検知して通知する（チェックの周期は5分、猶予は10〜15分を目安にする）
+
+有効にする手順（Kamal）：
+
+1. Healthchecks にチェックを作り、ping URL（`https://<host>/ping/<uuid>`）を控える
+2. `.kamal/secrets` に `HC_PING_URL=<ping URL>` を書く（コミットしない）
+3. `config/deploy.<destination名>.yml` に `env.secret: [HC_PING_URL]` を追加する（`config/deploy.sample.yml` 参照）
+4. `kamal deploy -d <destination名>`
+
+注意：本文は Healthchecks の画面とメールに残る。載るのは状態の文字列のみで、秘密は載せない。ping URL 自体は秘密として扱う。
+送信に失敗しても Monit は止まらず、`/var/log/hc-notify.log` に残る。
+
+通知を設定しなくても、`kamal status`（コンテナ内で `monit status`）と `/var/log/monit.log` で確認できる。
 
 ~~簡易Web UI（コンテナ内localhostのみ、ポート2812）を SSH ポートフォワードでブラウザから開く~~
 → この httpd はコンテナ内 localhost バインドかつポート未公開で、`monit` CLI 専用。ブラウザ閲覧はしない方針（`docs/design.md` 参照）。
-
-将来メール通知を追加する場合は `config/monitrc` に `set mailserver` と各チェックへの通知先アドレスを追記する。

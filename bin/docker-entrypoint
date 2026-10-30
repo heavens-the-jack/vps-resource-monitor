@@ -1,0 +1,9 @@
+#!/bin/sh
+# Monit は exec するプログラムへ環境変数を引き継がない。hc-notify が読めるよう、
+# HC_PING_URL をファイル（root のみ読み取り可）に書き出してから Monit を起動する。
+set -e
+umask 077
+if [ -n "${HC_PING_URL:-}" ]; then
+  printf "HC_PING_URL='%s'\n" "$HC_PING_URL" > /run/hc-notify.env
+fi
+exec "$@"

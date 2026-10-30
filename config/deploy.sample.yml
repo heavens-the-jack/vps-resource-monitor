@@ -11,3 +11,9 @@ servers:
 ssh:
   user: deploy                      # 対象VPSのSSHユーザーに置き換える
   config: ["~/.ssh/config"]         # ポート等の接続設定は ~/.ssh/config 側で管理する
+
+# Healthchecks（死活監視）への通知を有効にする場合は、以下を追加する（任意。無くても Monit は動く）。
+# HC_PING_URL の値は .kamal/secrets に書く（コミットしない）。
+# env:
+#   secret:
+#     - HC_PING_URL
