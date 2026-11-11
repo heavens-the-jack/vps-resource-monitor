@@ -105,7 +105,7 @@ kamal logs -d production     # コンテナのログ確認
 有効にする手順（Kamal）：
 
 1. Healthchecks にチェックを作り、ping URL（`https://<host>/ping/<uuid>`）を控える
-2. `.kamal/secrets` に `HC_PING_URL=<ping URL>` を書く（コミットしない）
+2. `.kamal/secrets.<destination名>` に `HC_PING_URL=<ping URL>` を書く（コミットしない。`-d <destination名>` を付けて実行するとき、Kamal が読むのはこのファイル。`.kamal/secrets` は読まれない）
 3. `config/deploy.<destination名>.yml` に `env.secret: [HC_PING_URL]` を追加する（`config/deploy.sample.yml` 参照）
 4. `kamal deploy -d <destination名>`
 

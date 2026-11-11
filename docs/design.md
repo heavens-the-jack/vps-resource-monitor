@@ -168,11 +168,11 @@ Healthchecks は「ping が来なくなったら通知する」死活監視で�
 - 本文は 2,000 バイトで切る（Healthchecks の既定上限は 10,000 バイト）
 
 ### 判断
-- **HC_PING_URL 未設定なら無効**：公開リポジトリのまま、通知先を持たない人も使える。ping URL は秘密として `.kamal/secrets` にのみ置く
+- **HC_PING_URL 未設定なら無効**：公開リポジトリのまま、通知先を持たない人も使える。ping URL は秘密として `.kamal/secrets.<destination名>` にのみ置く
 - **環境変数をファイル経由で渡す**：Monit は `exec` するプログラムへ環境変数を引き継がないため、`docker-entrypoint` が `/run/hc-notify.env`（root のみ読み取り可）へ書き出す
 - **`hc-notify` は常に exit 0**：送信失敗で Monit の動作に影響させない。送信は10秒で打ち切り、2回再試行し、失敗は `/var/log/hc-notify.log` に残す
 - **`check program` の判定ルール**：Monit は program チェックにルール（`status` か `content`）を必須とするため `if status != 0 then alert` を置いている。通知先は設定していないので、発火してもログに残るのみ
-- **Kamal の secret は destination ファイル側で宣言する**：ベースの `deploy.yml` に `env.secret` を書くと、`.kamal/secrets` に値が無い利用者のデプロイが失敗するため
+- **Kamal の secret は destination ファイル側で宣言する**：ベースの `deploy.yml` に `env.secret` を書くと、秘密ファイル（`.kamal/secrets-common` や `.kamal/secrets.<destination名>`）に値が無い利用者のデプロイが失敗するため
 
 ### 検証
 - `test/notify_test.sh`（ダミーの受け口。未設定、正常、異常、送信先不達の4場面）
