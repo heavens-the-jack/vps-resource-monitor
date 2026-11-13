@@ -6,7 +6,7 @@
 #
 # HC_PING_URL（docker-entrypoint が /run/hc-notify.env に書き出す）が未設定なら何もしない。
 # 送信に失敗しても Monit の動作は止めない（常に exit 0。失敗は /var/log/hc-notify.log に残す）。
-# 本文は Healthchecks の画面とメールに残るため、秘密は載せない（状態の文字列のみ）。
+# 本文は Healthchecks の画面とメールに残るため、秘密は載せない（状態の文字列と数値のみ）。
 
 MODE="${1:-}"
 ENV_FILE="${HC_NOTIFY_ENV_FILE:-/run/hc-notify.env}"
@@ -25,6 +25,16 @@ problems() {
     'NR > 2 && $1 != self && $2 != "OK" && $2 != "Initializing" && $2 != "Waiting"'
 }
 
+# 各サービスの詳しい状態（メモリ、スワップ、負荷、CPU、ディスクなどの数値）。本文に添える。
+# 自分自身のブロックと、運用に不要な行（filesystem flags は Docker の内部パスを含み長い）は除く。
+details() {
+  monit status -B 2>/dev/null | awk -v self="'$HEARTBEAT_SERVICE'" '
+    /^[A-Z]/ { skip = (index($0, self) > 0) }
+    skip { next }
+    /^  (monitoring mode|on reboot|filesystem flags|permission|uid|gid|block size|filedescriptors) / { next }
+    { print }'
+}
+
 send() {  # $1: URL の末尾（"" か "/fail"）、標準入力: 本文
   head -c "$BODY_LIMIT" | curl -fsS -m 10 --retry 2 --retry-delay 2 \
     --data-binary @- "${HC_PING_URL%/}$1" >/dev/null 2>> "$LOG_FILE" \
@@ -35,14 +45,14 @@ case "$MODE" in
   beat)
     found=$(problems)
     if [ -n "$found" ]; then
-      printf '%s\n' "$found" | send /fail
+      { printf '%s\n\n' "$found"; details; } | send /fail
     else
-      monit summary -B 2>&1 | send ""
+      details | send ""
     fi
     ;;
   fail)
-    printf '%s\n%s\n%s\n' "service: ${MONIT_SERVICE:-unknown}" "event: ${MONIT_EVENT:-unknown}" \
-      "${MONIT_DESCRIPTION:-}" | send /fail
+    { printf '%s\n%s\n%s\n\n' "service: ${MONIT_SERVICE:-unknown}" "event: ${MONIT_EVENT:-unknown}" \
+      "${MONIT_DESCRIPTION:-}"; details; } | send /fail
     ;;
   *)
     log "不明なモード: ${MODE}"

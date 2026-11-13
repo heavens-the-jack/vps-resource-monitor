@@ -2,8 +2,8 @@
 # 回帰テスト: Healthchecks への通知（bin/hc-notify、docker-entrypoint、monitrc の exec/program 連携）。
 # ダミーの受け口（Python）を立て、届いた URL と本文を確認する。実際の Healthchecks には送らない。
 #   1. HC_PING_URL 未設定: 何も送らず、Monit は healthy のまま
-#   2. 正常時の beat: 成功の ping（/fail なし）に状態が載る
-#   3. 異常時: /fail が届き、原因が本文に載る（then exec と beat の両方）
+#   2. 正常時の beat: 成功の ping（/fail なし）に状態と数値（メモリ、スワップ、負荷、ディスク）が載る
+#   3. 異常時: /fail が届き、原因と数値が本文に載る（then exec と beat の両方）
 #   4. 送信先に届かない: Monit は healthy のまま、失敗がログに残る
 set -uo pipefail
 
@@ -67,14 +67,21 @@ sleep 6
 docker exec vrm-notify-b hc-notify beat
 wait_for "^/ping/ok-uuid .*vps-host" 5; check "正常時の beat が成功の ping で届き、状態が載る" $?
 ! has "/fail";                       check "正常時は /fail が届かない" $?
+for key in "memory usage" "swap usage" "load average" "Filesystem 'rootfs'" "space free total"; do
+  has "^/ping/ok-uuid .*$key"; check "正常時の beat の本文に「$key」が載る" $?
+done
+! has "hc-heartbeat";                check "本文に自分自身（hc-heartbeat）の状態を載せない" $?
+! has "filesystem flags";            check "本文に filesystem flags（Docker の内部パス）を載せない" $?
 docker rm -f vrm-notify-b >/dev/null
 
 # 3. 異常時（閾値 0% で必ず超過）
 docker run -d --name vrm-notify-c --network "$NET" -e HC_PING_URL="http://$STUB:8080/ping/ng-uuid" "$ALERTING" >/dev/null
 wait_for "^/ping/ng-uuid/fail .*vps-host" 20; check "異常時に then exec の /fail が届く" $?
+has "^/ping/ng-uuid/fail service: .*memory usage"; check "then exec の /fail の本文に数値が載る" $?
 docker exec vrm-notify-c hc-notify beat
 sleep 1
 [ "$(requests | grep -c '^/ping/ng-uuid/fail')" -ge 2 ]; check "異常が続く間の beat は成功にならず /fail になる" $?
+[ "$(requests | grep -c '^/ping/ng-uuid/fail .*memory usage')" -ge 2 ]; check "異常時の beat の /fail の本文にも数値が載る" $?
 ! has "^/ping/ng-uuid ";               check "異常時に成功の ping が届かない" $?
 docker rm -f vrm-notify-c >/dev/null
 

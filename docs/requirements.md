@@ -13,7 +13,7 @@
 
 ## 要件
 
-- ホスト（OS/物理マシン）レベルのメモリ・スワップ・CPU負荷（load average / CPU使用率）を継続的に監視し、
+- ホスト（OS/物理マシン）レベルのメモリ・スワップ・CPU負荷（load average / CPU使用率）・ディスク使用率を継続的に監視し、
   閾値を継続して超過した場合に検知できること
 - メール送信基盤に依存しないこと。通知は任意で、Healthchecks（セルフホスト可）へ送る。
   設定しなくても `/var/log/monit.log` と `monit status` で確認できること
@@ -99,11 +99,17 @@ Monit のメール通知は未整備のままだったため、通知を Healthc
 `bin/hc-notify` と `docker-entrypoint` を追加し、`config/monitrc` を更新した。
 設計は `docs/design.md`、検証は `test/notify_test.sh`。
 
+### 通知の本文に数値を載せる・ディスクの監視 — 2026-11-13
+
+通知の本文が状態の文字列（`monit summary`）だけで、メモリ等の使用状況が分からなかった。
+本文を各サービスの詳しい状態（load average、CPU、メモリ、スワップ、ディスクの数値）に変え、
+あわせてディスク使用率の監視（> 80%）を加えた。設計は `docs/design.md`、検証は `test/notify_test.sh`。
+
 ## 未確認・未検証のこと
 
 1. **`kamal deploy`（2回目以降）の動作**：`kamal setup` は完走したが、更新時の `kamal deploy` /
    ロールバック挙動はまだ実運用で通していない
-2. **閾値のチューニング**：`config/monitrc`の閾値（メモリ90%・スワップ70%・load average 4等）は初期値。実際にデプロイして数日〜数週間分のデータを見てから調整するのが望ましい
+2. **閾値のチューニング**：`config/monitrc`の閾値（メモリ90%・スワップ70%・load average 4・ディスク80%等）は初期値。実際にデプロイして数日〜数週間分のデータを見てから調整するのが望ましい
 3. **Healthchecks 通知の本番動作**：ローカルでは、ダミーの受け口と本物の Healthchecks（v5.0.3）への送信まで確認済み（2026-10-30）。
    本番の Healthchecks 経由のメール通知は未確認
 4. **メール通知（Monit 直接）**：設定しない。通知は Healthchecks に寄せる

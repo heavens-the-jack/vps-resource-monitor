@@ -1,6 +1,6 @@
 # vps-resource-monitor
 
-VPS本体（OS/ホストレベル）のメモリ・スワップ・CPU負荷を監視する、軽量な自己完結型ツール。
+VPS本体（OS/ホストレベル）のメモリ・スワップ・CPU負荷・ディスクを監視する、軽量な自己完結型ツール。
 [Monit](https://mmonit.com/monit/) をDockerコンテナ化し、[Kamal](https://kamal-deploy.org/) でデプロイする。
 
 メール送信基盤には依存しない。通知は任意で、[Healthchecks](https://healthchecks.io/)（セルフホスト可）へ送れる。
@@ -91,6 +91,7 @@ kamal logs -d production     # コンテナのログ確認
 - スワップ使用率 > 70%
 - load average（5分平均） > 4
 - CPU使用率（user） > 90%
+- ディスク使用率 > 80%（コンテナの `/`。Dockerのデータ置き場のディスクで、通常はホストのルート）
 
 いずれも「継続して超過した場合」に反応する（`for N cycles`）。実際の運用データを見ながら調整すること。
 
@@ -98,8 +99,8 @@ kamal logs -d production     # コンテナのログ確認
 
 通知は Healthchecks へ送る（**任意**。`HC_PING_URL` を設定した場合のみ有効で、未設定なら送らない）。
 
-- 異常を検知したとき（閾値の超過が `for N cycles` 続いたとき）：即時に `/fail` を送る。原因が本文に載る
-- 5周期（約5分）ごと：現在の状態を送る。異常が続いていれば `/fail`、正常なら成功の ping（本文は `monit summary`）
+- 異常を検知したとき（閾値の超過が `for N cycles` 続いたとき）：即時に `/fail` を送る。原因と、各サービスの詳しい状態が本文に載る
+- 5周期（約5分）ごと：現在の状態を送る。異常が続いていれば `/fail`、正常なら成功の ping（本文は各サービスの詳しい状態。load average、CPU、メモリ、スワップ、ディスクの数値）
 - VPS全体や Monit が止まると送信が途絶える。それを Healthchecks 側が検知して通知する（チェックの周期は5分、猶予は10〜15分を目安にする）
 
 有効にする手順（Kamal）：
@@ -109,7 +110,7 @@ kamal logs -d production     # コンテナのログ確認
 3. `config/deploy.<destination名>.yml` に `env.secret: [HC_PING_URL]` を追加する（`config/deploy.sample.yml` 参照）
 4. `kamal deploy -d <destination名>`
 
-注意：本文は Healthchecks の画面とメールに残る。載るのは状態の文字列のみで、秘密は載せない。ping URL 自体は秘密として扱う。
+注意：本文は Healthchecks の画面とメールに残る。載るのは状態の文字列と数値のみで、秘密は載せない。ping URL 自体は秘密として扱う。
 送信に失敗しても Monit は止まらず、`/var/log/hc-notify.log` に残る。
 
 通知を設定しなくても、`kamal status`（コンテナ内で `monit status`）と `/var/log/monit.log` で確認できる。

@@ -27,6 +27,10 @@ check system vps-host
     if loadavg (5min) > 4 for 5 cycles then exec "/usr/local/bin/hc-notify fail"
     if cpu usage (user) > 90% for 10 cycles then exec "/usr/local/bin/hc-notify fail"
 
+# ディスク。コンテナの / はDockerのデータ置き場（通常はホストのルート）のディスクを指す
+check filesystem rootfs with path /
+    if space usage > 80% for 5 cycles then exec "/usr/local/bin/hc-notify fail"
+
 # 定期的な状態通知（5周期 = 約5分）。サービス名は bin/hc-notify の HEARTBEAT_SERVICE と揃える。
 # hc-notify は常に exit 0 を返す。Monit は program チェックに判定ルールを必須とするため置いているだけで、
 # 通知先は設定していないので、発火してもログに残るのみ。

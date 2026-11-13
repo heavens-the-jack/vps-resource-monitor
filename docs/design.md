@@ -12,6 +12,7 @@ config/monitrc ── 監視ルール本体
   │  set httpd port 2812 / use address localhost / allow localhost
   │                                       （monit CLI 用の制御 httpd。コンテナ内localhostのみ）
   │  check system vps-host { memory / swap / loadavg / cpu の閾値 → 超過で hc-notify fail }
+  │  check filesystem rootfs { / の使用率の閾値 → 超過で hc-notify fail }
   │  check program hc-heartbeat { 5周期ごとに hc-notify beat }
   │
 bin/hc-notify ── Healthchecks への通知（HC_PING_URL 未設定なら何もしない）
@@ -159,13 +160,15 @@ Healthchecks は「ping が来なくなったら通知する」死活監視で�
 
 | 契機 | 実行されるもの | 送るもの |
 |------|----------------|----------|
-| 閾値超過が規定の周期続く | `then exec "hc-notify fail"` | `/fail`。本文は Monit の `MONIT_SERVICE` / `MONIT_EVENT` / `MONIT_DESCRIPTION` |
-| 5周期ごと | `check program hc-heartbeat`（`hc-notify beat`） | 異常があれば `/fail`（本文は異常のあるサービスの行）、なければ成功の ping（本文は `monit summary`） |
+| 閾値超過が規定の周期続く | `then exec "hc-notify fail"` | `/fail`。本文は Monit の `MONIT_SERVICE` / `MONIT_EVENT` / `MONIT_DESCRIPTION` と、詳しい状態 |
+| 5周期ごと | `check program hc-heartbeat`（`hc-notify beat`） | 異常があれば `/fail`（本文は異常のあるサービスの行と、詳しい状態）、なければ成功の ping（本文は詳しい状態） |
 | ping が途絶える | Healthchecks 側 | （Healthchecks が通知する） |
 
 - `beat` が状態を見て `/fail` を選ぶのは、異常が続いているのに成功の ping で Healthchecks が「正常」に戻らないようにするため
 - `hc-heartbeat` 自身は異常判定から除く（`HEARTBEAT_SERVICE`）
 - 本文は 2,000 バイトで切る（Healthchecks の既定上限は 10,000 バイト）
+- 詳しい状態（`details`）は `monit status` から作る。`hc-heartbeat` 自身のブロックと、運用に不要な行（`filesystem flags`、`monitoring mode`、`on reboot`、`permission`、`uid`、`gid`、`block size`、`filedescriptors`）は除く。`filesystem flags` は Docker の内部パスを含み長いため。正常時の本文は約1KB（2026-11-13 実測）
+- ディスクは、コンテナの `/` を `check filesystem` で見る。overlay の容量は Docker のデータ置き場のディスク（通常はホストのルート）と同じになる。別ディスクにある場合は、そのディスクを見ることになる
 
 ### 判断
 - **HC_PING_URL 未設定なら無効**：公開リポジトリのまま、通知先を持たない人も使える。ping URL は秘密として `.kamal/secrets.<destination名>` にのみ置く
